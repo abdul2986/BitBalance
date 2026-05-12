@@ -1,0 +1,10 @@
+Keyboard
+Mouse
+Monitor
+Printer
+USB Cable
+SSD Drive
+Laptop
+Speaker
+Router
+Graphics Card

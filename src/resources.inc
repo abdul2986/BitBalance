@@ -1,0 +1,16 @@
+IDC_PRODUCT                 equ 1001
+IDC_ACCOUNT                 equ 1002
+IDC_PURPOSE                 equ 1003
+IDC_AMOUNT                  equ 1004
+IDC_DEBIT                   equ 1005
+IDC_CREDIT                  equ 1006
+IDC_SAVE                    equ 1007
+IDC_EXIT                    equ 1008
+IDC_LEDGER_LISTVIEW         equ 1009
+IDC_PRODUCTBOX              equ 1010
+IDC_ADD_PRODUCT_BTN         equ 1011
+IDC_NEW_PRODUCT_EDIT        equ 1012
+IDC_ADD_PRODUCT_DIALOG_BTN  equ 1013
+IDC_TOTAL_DEBIT              equ 1014
+IDC_TOTAL_CREDIT             equ 1015
+IDC_TOTAL_BALANCE            equ 1016
