@@ -1,5 +1,0 @@
-Mouse | PK34324234 | N/A | 1000 | Debit
-Mouse | SDSSDSA | D | 1000 | Debit
-Graphics Card | CASH | N/A | 10000 | Debit
-KeyboardPK34234234N/A20000Credit
-KeyboardPK34234234N/A30000Debit
