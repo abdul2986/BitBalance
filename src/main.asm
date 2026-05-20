@@ -1,3 +1,8 @@
+; ========================= SENTRY OS PRO =========================
+; FULL PROFESSIONAL ACCOUNTING + INVENTORY SYSTEM
+; MASM32 SAFE VERSION
+; ================================================================
+
 .386
 .model flat, stdcall
 option casemap:none
@@ -6,26 +11,46 @@ include C:\masm32\include\windows.inc
 include C:\masm32\include\user32.inc
 include C:\masm32\include\kernel32.inc
 include C:\masm32\include\comctl32.inc
+include C:\masm32\include\gdi32.inc
+include C:\masm32\include\masm32.inc
 
 includelib C:\masm32\lib\user32.lib
 includelib C:\masm32\lib\kernel32.lib
 includelib C:\masm32\lib\comctl32.lib
+includelib C:\masm32\lib\gdi32.lib
+includelib C:\masm32\lib\masm32.lib
 
 include resources.inc
 
 WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
 WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
-LoadProducts PROTO
-SaveRecord PROTO
-AddLedgerItem PROTO
-UpdateSummary PROTO
+
+AddTransaction PROTO
+AddProduct PROTO
+RefreshProductList PROTO
+UpdateDashboard PROTO
+LoadProductsFromFile PROTO
+InsertReportItem PROTO
+ClearInputs PROTO
+
+; Macro for inline strings
+CSTR macro text:VARARG
+    LOCAL local_label
+    .const
+        local_label db text,0
+    .code
+    exitm <offset local_label>
+endm
 
 .const
-EditClass db "edit",0
-ButtonClass db "button",0
-StaticClass db "static",0
-ComboClass db "combobox",0
-ListViewClass db "SysListView32",0
+
+EditClass      db "edit",0
+ButtonClass    db "button",0
+StaticClass    db "static",0
+ComboClass     db "combobox",0
+ListViewClass  db "SysListView32",0
+
+MAX_PRODUCTS equ 100
 
 .data
 
@@ -33,66 +58,91 @@ icc INITCOMMONCONTROLSEX <SIZEOF INITCOMMONCONTROLSEX,\
 ICC_LISTVIEW_CLASSES>
 
 ClassName db "SentryClass",0
-AppName db "Sentry OS",0
-
-titleText db "Sentry OS Accounting Dashboard",0
-
-productLabel db "Product:",0
-accountLabel db "Account No:",0
-purposeLabel db "Purpose:",0
-amountLabel db "Amount:",0
-
-saveText db "Add Entry",0
-exitText db "Exit",0
-
-debitText db "Debit",0
-creditText db "Credit",0
-
-lblDebit db "Total Debit",0
-lblCredit db "Total Credit",0
-lblBalance db "Earnings",0
-
-msgSaved db "Entry Saved",0
-msgError db "Please Fill Fields",0
-
-recordsFile db "data\records.txt",0
+AppName db "Sentry OS PRO",0
 productsFile db "data\products.txt",0
 
-productCol db "Product",0
-accountCol db "Account",0
-purposeCol db "Purpose",0
-amountCol db "Amount",0
-typeCol db "Type",0
+headerTitle db "SENTRY OS PROFESSIONAL ACCOUNTING SYSTEM",0
 
-productBuffer db 128 dup(0)
-accountBuffer db 128 dup(0)
-purposeBuffer db 128 dup(0)
+txtTransaction db "TRANSACTION",0
+txtAddProduct db "ADD PRODUCT",0
+txtManage db "MANAGE PRODUCTS",0
+txtReports db "REPORTS",0
+
+txtProduct db "Product",0
+txtAccount db "Account No",0
+txtPurpose db "Purpose",0
+txtAmount db "Amount",0
+txtQuantity db "Quantity",0
+txtType db "Type",0
+
+txtDebit db "Debit",0
+txtCredit db "Credit",0
+
+txtSave db "SAVE TRANSACTION",0
+txtAdd db "ADD PRODUCT",0
+
+txtTotalDebit db "TOTAL DEBIT",0
+txtTotalCredit db "TOTAL CREDIT",0
+txtEarnings db "EARNINGS",0
+
+msgSaved db "Transaction Saved",0
+msgProductAdded db "Product Added",0
+msgDuplicate db "Product Already Exists",0
+msgError db "Please Fill All Fields",0
+msgStock db "Not Enough Stock Available",0
+
+productsNames db MAX_PRODUCTS*32 dup(0)
+productsQty dd MAX_PRODUCTS dup(0)
+
+productCount dd 0
+
+selectedProduct db 64 dup(0)
+accountBuffer db 64 dup(0)
+purposeBuffer db 64 dup(0)
 amountBuffer db 64 dup(0)
+qtyBuffer db 64 dup(0)
+newProductBuffer db 64 dup(0)
 
-currentType db "Debit",0
-
-space db " | ",0
-newline db 13,10,0
-formatStr db "%d",0
-zeroStr db "0",0
+currentType db 32 dup(0)
 
 totalDebit dd 0
 totalCredit dd 0
-totalBalance dd 0
-hDispDebit dd ?
-hDispCredit dd ?
-hDispBalance dd ?
+totalEarning dd 0
 
-entryBuffer db 512 dup(0)
+strBuffer db 64 dup(0)
+formatInt db "%d",0
 
-bytesWritten dd ?
+hSidebar dd ?
+hTransactionPanel dd ?
+hProductPanel dd ?
+hManagePanel dd ?
+hReportPanel dd ?
 
-hProduct dd ?
+hCombo dd ?
 hAccount dd ?
 hPurpose dd ?
 hAmount dd ?
-hLedger dd ?
-strSumBuffer db 32 dup(0)
+
+hNewProduct dd ?
+hNewQty dd ?
+
+hLblProd dd ?
+hLblAcc dd ?
+hLblPurp dd ?
+hLblAmt dd ?
+hLblNewProd dd ?
+hLblNewQty dd ?
+hBtnSave dd ?
+hBtnAdd dd ?
+hRadDebit dd ?
+hRadCredit dd ?
+
+hManageList dd ?
+hReportList dd ?
+
+hDebitLabel dd ?
+hCreditLabel dd ?
+hEarnLabel dd ?
 
 .code
 
@@ -101,6 +151,8 @@ start:
     invoke GetModuleHandle,NULL
     invoke WinMain,eax,NULL,NULL,SW_SHOWDEFAULT
     invoke ExitProcess,eax
+
+; ================================================================
 
 WinMain proc hInst:DWORD,hPrev:DWORD,\
 CmdLine:DWORD,CmdShow:DWORD
@@ -120,7 +172,7 @@ LOCAL hwnd:HWND
     push hInst
     pop wc.hInstance
 
-    mov wc.hbrBackground,COLOR_WINDOW+1
+    mov wc.hbrBackground,COLOR_BTNFACE+1
     mov wc.lpszMenuName,0
     mov wc.lpszClassName,OFFSET ClassName
 
@@ -138,10 +190,10 @@ LOCAL hwnd:HWND
     ADDR ClassName,\
     ADDR AppName,\
     WS_OVERLAPPEDWINDOW,\
-    50,\
+    100,\
     30,\
-    1100,\
-    700,\
+    1400,\
+    850,\
     NULL,\
     NULL,\
     hInst,\
@@ -152,7 +204,7 @@ LOCAL hwnd:HWND
     invoke ShowWindow,hwnd,SW_SHOWNORMAL
     invoke UpdateWindow,hwnd
 
-msg_loop:
+msgLoop:
 
     invoke GetMessage,ADDR msg,NULL,0,0
 
@@ -162,7 +214,7 @@ msg_loop:
     invoke TranslateMessage,ADDR msg
     invoke DispatchMessage,ADDR msg
 
-    jmp msg_loop
+    jmp msgLoop
 
 finish:
 
@@ -171,22 +223,115 @@ finish:
 
 WinMain endp
 
-WndProc proc hWnd:DWORD,uMsg:DWORD,\
-wParam:DWORD,lParam:DWORD
+; ================================================================
+
+WndProc proc hWnd:DWORD,uMsg:DWORD,wParam:DWORD,lParam:DWORD
 
 LOCAL lvc:LVCOLUMN
 LOCAL lvi:LVITEM
 
     .if uMsg == WM_CREATE
 
+; ================= HEADER =================
+
         invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
-        ADDR titleText,\
+        ADDR headerTitle,\
         WS_VISIBLE or WS_CHILD,\
-        320,\
+        500,\
+        15,\
+        700,\
+        35,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+
+; ================= SIDEBAR =================
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        NULL,\
+        WS_VISIBLE or WS_CHILD,\
+        0,\
+        0,\
+        230,\
+        850,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+
+        mov hSidebar,eax
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR ButtonClass,\
+        ADDR txtTransaction,\
+        WS_VISIBLE or WS_CHILD,\
         20,\
-        400,\
+        100,\
+        180,\
+        45,\
+        hWnd,\
+        IDC_TRANSACTION_MENU,\
+        NULL,\
+        NULL
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR ButtonClass,\
+        ADDR txtAddProduct,\
+        WS_VISIBLE or WS_CHILD,\
+        20,\
+        170,\
+        180,\
+        45,\
+        hWnd,\
+        IDC_PRODUCT_MENU,\
+        NULL,\
+        NULL
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR ButtonClass,\
+        ADDR txtManage,\
+        WS_VISIBLE or WS_CHILD,\
+        20,\
+        240,\
+        180,\
+        45,\
+        hWnd,\
+        IDC_MANAGE_MENU,\
+        NULL,\
+        NULL
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR ButtonClass,\
+        ADDR txtReports,\
+        WS_VISIBLE or WS_CHILD,\
+        20,\
+        310,\
+        180,\
+        45,\
+        hWnd,\
+        IDC_REPORT_MENU,\
+        NULL,\
+        NULL
+
+; ================= DASHBOARD =================
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        ADDR txtTotalDebit,\
+        WS_VISIBLE or WS_CHILD,\
+        980,\
+        15,\
+        120,\
         30,\
         hWnd,\
         NULL,\
@@ -194,58 +339,141 @@ LOCAL lvi:LVITEM
         NULL
 
         invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        CSTR("0"),\
+        WS_VISIBLE or WS_CHILD or SS_CENTER,\
+        980,\
+        45,\
+        120,\
+        35,\
+        hWnd,\
+        IDC_TOTAL_DEBIT,\
+        NULL,\
+        NULL
+
+        mov hDebitLabel,eax
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        ADDR txtTotalCredit,\
+        WS_VISIBLE or WS_CHILD,\
+        1120,\
+        15,\
+        120,\
+        30,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        CSTR("0"),\
+        WS_VISIBLE or WS_CHILD or SS_CENTER,\
+        1120,\
+        45,\
+        120,\
+        35,\
+        hWnd,\
+        IDC_TOTAL_CREDIT,\
+        NULL,\
+        NULL
+
+        mov hCreditLabel,eax
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        ADDR txtEarnings,\
+        WS_VISIBLE or WS_CHILD,\
+        1260,\
+        15,\
+        120,\
+        30,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR StaticClass,\
+        CSTR("0"),\
+        WS_VISIBLE or WS_CHILD or SS_CENTER,\
+        1260,\
+        45,\
+        120,\
+        35,\
+        hWnd,\
+        IDC_TOTAL_EARNING,\
+        NULL,\
+        NULL
+
+        mov hEarnLabel,eax
+
+; ================= TRANSACTION MODULE =================
+
+        invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
-        ADDR productLabel,\
-        WS_VISIBLE or WS_CHILD,\
-        40,\
-        70,\
-        100,\
+        ADDR txtProduct,\
+        WS_CHILD,\
+        400,\
+        120,\
+        120,\
         25,\
         hWnd,\
         NULL,\
         NULL,\
         NULL
+    mov hLblProd, eax
 
         invoke CreateWindowEx,\
         WS_EX_CLIENTEDGE,\
         ADDR ComboClass,\
         NULL,\
-        WS_VISIBLE or WS_CHILD or CBS_DROPDOWNLIST,\
-        160,\
-        70,\
-        220,\
-        200,\
+        WS_CHILD or CBS_DROPDOWNLIST,\
+        550,\
+        120,\
+        250,\
+        300,\
         hWnd,\
-        IDC_PRODUCTBOX,\
+        IDC_PRODUCT_COMBO,\
         NULL,\
         NULL
 
-        mov hProduct,eax
+        mov hCombo,eax
+
+        ; Fetch products from file into the dropdown
+        invoke LoadProductsFromFile
 
         invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
-        ADDR accountLabel,\
-        WS_VISIBLE or WS_CHILD,\
-        40,\
+        ADDR txtAccount,\
+        WS_CHILD,\
+        400,\
+        180,\
         120,\
-        100,\
         25,\
         hWnd,\
         NULL,\
         NULL,\
         NULL
+    mov hLblAcc, eax
 
         invoke CreateWindowEx,\
         WS_EX_CLIENTEDGE,\
         ADDR EditClass,\
         NULL,\
-        WS_VISIBLE or WS_CHILD,\
-        160,\
-        120,\
-        220,\
-        25,\
+        WS_CHILD,\
+        550,\
+        180,\
+        250,\
+        30,\
         hWnd,\
         IDC_ACCOUNT,\
         NULL,\
@@ -256,26 +484,27 @@ LOCAL lvi:LVITEM
         invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
-        ADDR purposeLabel,\
-        WS_VISIBLE or WS_CHILD,\
-        40,\
-        170,\
-        100,\
+        ADDR txtPurpose,\
+        WS_CHILD,\
+        400,\
+        240,\
+        120,\
         25,\
         hWnd,\
         NULL,\
         NULL,\
         NULL
+    mov hLblPurp, eax
 
         invoke CreateWindowEx,\
         WS_EX_CLIENTEDGE,\
         ADDR EditClass,\
         NULL,\
-        WS_VISIBLE or WS_CHILD,\
-        160,\
-        170,\
-        220,\
-        25,\
+        WS_CHILD,\
+        550,\
+        240,\
+        250,\
+        30,\
         hWnd,\
         IDC_PURPOSE,\
         NULL,\
@@ -286,26 +515,27 @@ LOCAL lvi:LVITEM
         invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
-        ADDR amountLabel,\
-        WS_VISIBLE or WS_CHILD,\
-        40,\
-        220,\
-        100,\
+        ADDR txtAmount,\
+        WS_CHILD,\
+        400,\
+        300,\
+        120,\
         25,\
         hWnd,\
         NULL,\
         NULL,\
         NULL
+    mov hLblAmt, eax
 
         invoke CreateWindowEx,\
         WS_EX_CLIENTEDGE,\
         ADDR EditClass,\
         NULL,\
-        WS_VISIBLE or WS_CHILD,\
-        160,\
-        220,\
-        220,\
-        25,\
+        WS_CHILD,\
+        550,\
+        300,\
+        250,\
+        30,\
         hWnd,\
         IDC_AMOUNT,\
         NULL,\
@@ -316,194 +546,313 @@ LOCAL lvi:LVITEM
         invoke CreateWindowEx,\
         0,\
         ADDR ButtonClass,\
-        ADDR debitText,\
-        WS_VISIBLE or WS_CHILD or BS_AUTORADIOBUTTON,\
-        160,\
-        270,\
+        ADDR txtDebit,\
+        WS_CHILD or BS_AUTORADIOBUTTON,\
+        550,\
+        360,\
         100,\
-        30,\
+        35,\
         hWnd,\
         IDC_DEBIT,\
         NULL,\
         NULL
+    mov hRadDebit, eax
 
         invoke CreateWindowEx,\
         0,\
         ADDR ButtonClass,\
-        ADDR creditText,\
-        WS_VISIBLE or WS_CHILD or BS_AUTORADIOBUTTON,\
-        280,\
-        270,\
+        ADDR txtCredit,\
+        WS_CHILD or BS_AUTORADIOBUTTON,\
+        680,\
+        360,\
         100,\
-        30,\
+        35,\
         hWnd,\
         IDC_CREDIT,\
         NULL,\
         NULL
+    mov hRadCredit, eax
 
         invoke CreateWindowEx,\
         0,\
         ADDR ButtonClass,\
-        ADDR saveText,\
-        WS_VISIBLE or WS_CHILD,\
-        160,\
-        330,\
-        120,\
-        40,\
+        ADDR txtSave,\
+        WS_CHILD,\
+        550,\
+        430,\
+        250,\
+        45,\
         hWnd,\
         IDC_SAVE,\
         NULL,\
         NULL
+    mov hBtnSave, eax
+
+; ================= ADD PRODUCT =================
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR StaticClass,\
+        CSTR("New Product"),\
+        WS_CHILD,\
+        400,\
+        120,\
+        150,\
+        25,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+    mov hLblNewProd, eax
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR EditClass,\
+        NULL,\
+        WS_CHILD,\
+        550,\
+        120,\
+        250,\
+        30,\
+        hWnd,\
+        IDC_NEW_PRODUCT,\
+        NULL,\
+        NULL
+
+        mov hNewProduct,eax
+
+        invoke CreateWindowEx,\
+        0,\
+        ADDR StaticClass,\
+        ADDR txtQuantity,\
+        WS_CHILD,\
+        400,\
+        180,\
+        150,\
+        25,\
+        hWnd,\
+        NULL,\
+        NULL,\
+        NULL
+    mov hLblNewQty, eax
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR EditClass,\
+        NULL,\
+        WS_CHILD,\
+        550,\
+        180,\
+        250,\
+        30,\
+        hWnd,\
+        IDC_NEW_QTY,\
+        NULL,\
+        NULL
+
+        mov hNewQty,eax
 
         invoke CreateWindowEx,\
         0,\
         ADDR ButtonClass,\
-        ADDR exitText,\
-        WS_VISIBLE or WS_CHILD,\
-        300,\
-        330,\
-        120,\
-        40,\
+        ADDR txtAdd,\
+        WS_CHILD,\
+        550,\
+        240,\
+        250,\
+        45,\
         hWnd,\
-        IDC_EXIT,\
+        IDC_ADD_PRODUCT,\
         NULL,\
         NULL
+    mov hBtnAdd, eax
+
+; ================= MANAGE PRODUCTS =================
+
+        invoke CreateWindowEx,\
+        WS_EX_CLIENTEDGE,\
+        ADDR ListViewClass,\
+        NULL,\
+        WS_CHILD or LVS_REPORT,\
+        300,\
+        150,\
+        800,\
+        500,\
+        hWnd,\
+        IDC_MANAGE_LIST,\
+        NULL,\
+        NULL
+
+        mov hManageList,eax
+
+        mov lvc.imask,LVCF_TEXT or LVCF_WIDTH
+
+        mov lvc.lx,200
+        mov lvc.pszText,OFFSET txtProduct
+        invoke SendMessage,hManageList,LVM_INSERTCOLUMN,0,ADDR lvc
+
+        mov lvc.lx,200
+        mov lvc.pszText,OFFSET txtQuantity
+        invoke SendMessage,hManageList,LVM_INSERTCOLUMN,1,ADDR lvc
+
+; ================= REPORTS =================
 
         invoke CreateWindowEx,\
         WS_EX_CLIENTEDGE,\
         ADDR ListViewClass,\
         NULL,\
         WS_VISIBLE or WS_CHILD or LVS_REPORT,\
-        450,\
-        70,\
+        260,\
+        150,\
+        1100,\
         600,\
-        500,\
         hWnd,\
-        IDC_LEDGER_LISTVIEW,\
+        IDC_REPORT_LIST,\
         NULL,\
         NULL
 
-        mov hLedger,eax
+        mov hReportList,eax
 
         mov lvc.imask,LVCF_TEXT or LVCF_WIDTH
 
-        mov lvc.lx,130
-        mov lvc.pszText,OFFSET productCol
-        invoke SendMessage,hLedger,LVM_INSERTCOLUMN,0,ADDR lvc
+        mov lvc.lx,120
+        mov lvc.pszText,OFFSET txtProduct
+        invoke SendMessage,hReportList,LVM_INSERTCOLUMN,0,ADDR lvc
 
-        mov lvc.lx,130
-        mov lvc.pszText,OFFSET accountCol
-        invoke SendMessage,hLedger,LVM_INSERTCOLUMN,1,ADDR lvc
+        mov lvc.lx,120
+        mov lvc.pszText,OFFSET txtAccount
+        invoke SendMessage,hReportList,LVM_INSERTCOLUMN,1,ADDR lvc
 
-        mov lvc.lx,160
-        mov lvc.pszText,OFFSET purposeCol
-        invoke SendMessage,hLedger,LVM_INSERTCOLUMN,2,ADDR lvc
+        mov lvc.lx,120
+        mov lvc.pszText,OFFSET txtPurpose
+        invoke SendMessage,hReportList,LVM_INSERTCOLUMN,2,ADDR lvc
 
-        mov lvc.lx,110
-        mov lvc.pszText,OFFSET amountCol
-        invoke SendMessage,hLedger,LVM_INSERTCOLUMN,3,ADDR lvc
+        mov lvc.lx,120
+        mov lvc.pszText,OFFSET txtAmount
+        invoke SendMessage,hReportList,LVM_INSERTCOLUMN,3,ADDR lvc
 
-        mov lvc.lx,110
-        mov lvc.pszText,OFFSET typeCol
-        invoke SendMessage,hLedger,LVM_INSERTCOLUMN,4,ADDR lvc
+        mov lvc.lx,100
+        mov lvc.pszText,OFFSET txtType
+        invoke SendMessage,hReportList,LVM_INSERTCOLUMN,4,ADDR lvc
 
-        ; --- Summary UI Section ---
-        invoke CreateWindowEx,0,ADDR StaticClass,ADDR lblDebit,\
-            WS_VISIBLE or WS_CHILD, 730, 10, 100, 20, hWnd, NULL, NULL, NULL
-            
-        invoke CreateWindowEx,WS_EX_CLIENTEDGE,ADDR StaticClass,ADDR zeroStr,\
-            WS_VISIBLE or WS_CHILD or SS_CENTER,\
-            730, 35, 100, 25, hWnd, IDC_TOTAL_DEBIT, NULL, NULL
-        mov hDispDebit, eax
+; ================= DEFAULT STATE =================
+        ; Force show only Transaction Module at startup
+        invoke SendMessage, hWnd, WM_COMMAND, IDC_TRANSACTION_MENU, 0
 
-        invoke CreateWindowEx,0,ADDR StaticClass,ADDR lblCredit,\
-            WS_VISIBLE or WS_CHILD, 850, 10, 100, 20, hWnd, NULL, NULL, NULL
-            
-        invoke CreateWindowEx,WS_EX_CLIENTEDGE,ADDR StaticClass,ADDR zeroStr,\
-            WS_VISIBLE or WS_CHILD or SS_CENTER,\
-            850, 35, 100, 25, hWnd, IDC_TOTAL_CREDIT, NULL, NULL
-        mov hDispCredit, eax
-
-        invoke CreateWindowEx,0,ADDR StaticClass,ADDR lblBalance,\
-            WS_VISIBLE or WS_CHILD, 970, 10, 100, 20, hWnd, NULL, NULL, NULL
-            
-        invoke CreateWindowEx,WS_EX_CLIENTEDGE,ADDR StaticClass,ADDR zeroStr,\
-            WS_VISIBLE or WS_CHILD or SS_CENTER,\
-            970, 35, 100, 25, hWnd, IDC_TOTAL_BALANCE, NULL, NULL
-        mov hDispBalance, eax
-
-        invoke LoadProducts
+; ================================================================
 
     .elseif uMsg == WM_COMMAND
 
         mov eax,wParam
 
-        .if ax == IDC_DEBIT
+        .if ax == IDC_TRANSACTION_MENU
+            ; Show Transaction
+            invoke ShowWindow, hLblProd, SW_SHOW
+            invoke ShowWindow, hCombo, SW_SHOW
+            invoke ShowWindow, hLblAcc, SW_SHOW
+            invoke ShowWindow, hAccount, SW_SHOW
+            invoke ShowWindow, hLblPurp, SW_SHOW
+            invoke ShowWindow, hPurpose, SW_SHOW
+            invoke ShowWindow, hLblAmt, SW_SHOW
+            invoke ShowWindow, hAmount, SW_SHOW
+            invoke ShowWindow, hRadDebit, SW_SHOW
+            invoke ShowWindow, hRadCredit, SW_SHOW
+            invoke ShowWindow, hBtnSave, SW_SHOW
+            ; Hide Others
+            invoke ShowWindow, hLblNewProd, SW_HIDE
+            invoke ShowWindow, hNewProduct, SW_HIDE
+            invoke ShowWindow, hLblNewQty, SW_HIDE
+            invoke ShowWindow, hNewQty, SW_HIDE
+            invoke ShowWindow, hBtnAdd, SW_HIDE
+            invoke ShowWindow, hManageList, SW_HIDE
+            invoke ShowWindow, hReportList, SW_HIDE
 
-            invoke lstrcpy,ADDR currentType,\
-            ADDR debitText
+        .elseif ax == IDC_PRODUCT_MENU
+            ; Hide Transaction
+            invoke ShowWindow, hLblProd, SW_HIDE
+            invoke ShowWindow, hCombo, SW_HIDE
+            invoke ShowWindow, hLblAcc, SW_HIDE
+            invoke ShowWindow, hAccount, SW_HIDE
+            invoke ShowWindow, hLblPurp, SW_HIDE
+            invoke ShowWindow, hPurpose, SW_HIDE
+            invoke ShowWindow, hLblAmt, SW_HIDE
+            invoke ShowWindow, hAmount, SW_HIDE
+            invoke ShowWindow, hRadDebit, SW_HIDE
+            invoke ShowWindow, hRadCredit, SW_HIDE
+            invoke ShowWindow, hBtnSave, SW_HIDE
+            ; Show Add Product
+            invoke ShowWindow, hLblNewProd, SW_SHOW
+            invoke ShowWindow, hNewProduct, SW_SHOW
+            invoke ShowWindow, hLblNewQty, SW_SHOW
+            invoke ShowWindow, hNewQty, SW_SHOW
+            invoke ShowWindow, hBtnAdd, SW_SHOW
+            ; Hide Others
+            invoke ShowWindow, hManageList, SW_HIDE
+            invoke ShowWindow, hReportList, SW_HIDE
+
+        .elseif ax == IDC_MANAGE_MENU
+            ; Hide All
+            invoke ShowWindow, hLblProd, SW_HIDE
+            invoke ShowWindow, hCombo, SW_HIDE
+            invoke ShowWindow, hLblAcc, SW_HIDE
+            invoke ShowWindow, hAccount, SW_HIDE
+            invoke ShowWindow, hLblPurp, SW_HIDE
+            invoke ShowWindow, hPurpose, SW_HIDE
+            invoke ShowWindow, hLblAmt, SW_HIDE
+            invoke ShowWindow, hAmount, SW_HIDE
+            invoke ShowWindow, hRadDebit, SW_HIDE
+            invoke ShowWindow, hRadCredit, SW_HIDE
+            invoke ShowWindow, hBtnSave, SW_HIDE
+            
+            invoke ShowWindow, hLblNewProd, SW_HIDE
+            invoke ShowWindow, hNewProduct, SW_HIDE
+            invoke ShowWindow, hLblNewQty, SW_HIDE
+            invoke ShowWindow, hNewQty, SW_HIDE
+            invoke ShowWindow, hBtnAdd, SW_HIDE
+
+            ; Show Manage Only
+            invoke ShowWindow, hManageList, SW_SHOW
+            invoke ShowWindow, hReportList, SW_HIDE
+
+        .elseif ax == IDC_REPORT_MENU
+            ; Hide All
+            invoke ShowWindow, hLblProd, SW_HIDE
+            invoke ShowWindow, hCombo, SW_HIDE
+            invoke ShowWindow, hLblAcc, SW_HIDE
+            invoke ShowWindow, hAccount, SW_HIDE
+            invoke ShowWindow, hLblPurp, SW_HIDE
+            invoke ShowWindow, hPurpose, SW_HIDE
+            invoke ShowWindow, hLblAmt, SW_HIDE
+            invoke ShowWindow, hAmount, SW_HIDE
+            invoke ShowWindow, hRadDebit, SW_HIDE
+            invoke ShowWindow, hRadCredit, SW_HIDE
+            invoke ShowWindow, hBtnSave, SW_HIDE
+
+            invoke ShowWindow, hLblNewProd, SW_HIDE
+            invoke ShowWindow, hNewProduct, SW_HIDE
+            invoke ShowWindow, hLblNewQty, SW_HIDE
+            invoke ShowWindow, hNewQty, SW_HIDE
+            invoke ShowWindow, hBtnAdd, SW_HIDE
+
+            ; Show Report Only
+            invoke ShowWindow, hManageList, SW_HIDE
+            invoke ShowWindow, hReportList, SW_SHOW
+
+        .elseif ax == IDC_DEBIT
+
+            invoke lstrcpy,ADDR currentType,ADDR txtDebit
 
         .elseif ax == IDC_CREDIT
 
-            invoke lstrcpy,ADDR currentType,\
-            ADDR creditText
+            invoke lstrcpy,ADDR currentType,ADDR txtCredit
+
+        .elseif ax == IDC_ADD_PRODUCT
+
+            invoke AddProduct
 
         .elseif ax == IDC_SAVE
 
-            invoke SendMessage,\
-            hProduct,\
-            CB_GETCURSEL,\
-            0,\
-            0
-
-            invoke SendMessage,\
-            hProduct,\
-            CB_GETLBTEXT,\
-            eax,\
-            ADDR productBuffer
-
-            invoke GetWindowText,\
-            hAccount,\
-            ADDR accountBuffer,\
-            128
-
-            invoke GetWindowText,\
-            hPurpose,\
-            ADDR purposeBuffer,\
-            128
-
-            invoke GetWindowText,\
-            hAmount,\
-            ADDR amountBuffer,\
-            64
-
-            invoke lstrlen,ADDR accountBuffer
-
-            .if eax == 0
-
-                invoke MessageBox,\
-                hWnd,\
-                ADDR msgError,\
-                ADDR AppName,\
-                MB_OK
-
-            .else
-
-                invoke SaveRecord
-                invoke AddLedgerItem
-                invoke UpdateSummary
-
-                invoke MessageBox,\
-                hWnd,\
-                ADDR msgSaved,\
-                ADDR AppName,\
-                MB_OK
-
-            .endif
-
-        .elseif ax == IDC_EXIT
-
-            invoke DestroyWindow,hWnd
+            invoke AddTransaction
 
         .endif
 
@@ -513,9 +862,7 @@ LOCAL lvi:LVITEM
 
     .else
 
-        invoke DefWindowProc,\
-        hWnd,uMsg,wParam,lParam
-
+        invoke DefWindowProc,hWnd,uMsg,wParam,lParam
         ret
 
     .endif
@@ -525,270 +872,422 @@ LOCAL lvi:LVITEM
 
 WndProc endp
 
-SaveRecord proc
+; ================================================================
 
-LOCAL hFile:DWORD
-
-    invoke RtlZeroMemory,\
-    ADDR entryBuffer,\
-    512
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR productBuffer
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR space
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR accountBuffer
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR space
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR purposeBuffer
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR space
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR amountBuffer
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR space
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR currentType
-
-    invoke lstrcat,\
-    ADDR entryBuffer,\
-    ADDR newline
-
-    invoke CreateFile,\
-    ADDR recordsFile,\
-    GENERIC_WRITE,\
-    FILE_SHARE_WRITE,\
-    NULL,\
-    OPEN_ALWAYS,\
-    FILE_ATTRIBUTE_NORMAL,\
-    NULL
-
-    mov hFile,eax
-
-    invoke SetFilePointer,\
-    hFile,0,0,FILE_END
-
-    invoke lstrlen,ADDR entryBuffer
-
-    invoke WriteFile,\
-    hFile,\
-    ADDR entryBuffer,\
-    eax,\
-    ADDR bytesWritten,\
-    NULL
-
-    invoke CloseHandle,hFile
-
-    ret
-
-SaveRecord endp
-
-AddLedgerItem proc
-
-LOCAL lvi:LVITEM
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_GETITEMCOUNT,\
-    0,\
-    0
-
-    mov lvi.iItem,eax
-    mov lvi.iSubItem,0
-    mov lvi.imask, LVIF_TEXT
-    mov lvi.pszText, OFFSET productBuffer
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_INSERTITEM,\
-    0,\
-    ADDR lvi
-
-    mov lvi.iSubItem,1
-    mov lvi.pszText, OFFSET accountBuffer
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_SETITEMTEXT,\
-    lvi.iItem,\
-    ADDR lvi
-
-    mov lvi.iSubItem,2
-    mov lvi.pszText, OFFSET purposeBuffer
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_SETITEMTEXT,\
-    lvi.iItem,\
-    ADDR lvi
-
-    mov lvi.iSubItem,3
-    mov lvi.pszText, OFFSET amountBuffer
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_SETITEMTEXT,\
-    lvi.iItem,\
-    ADDR lvi
-
-    mov lvi.iSubItem,4
-    mov lvi.pszText, OFFSET currentType
-
-    invoke SendMessage,\
-    hLedger,\
-    LVM_SETITEMTEXT,\
-    lvi.iItem,\
-    ADDR lvi
-
-    ret
-
-AddLedgerItem endp
-
-UpdateSummary proc
-    LOCAL val:DWORD
+LoadProductsFromFile proc uses ebx esi edi
+    LOCAL hFile:HANDLE
+    LOCAL fSize:DWORD
+    LOCAL nRead:DWORD
+    LOCAL pMem:DWORD
     
-    ; Simple string to integer conversion
-    lea esi, amountBuffer
-    xor eax, eax
-    .while byte ptr [esi] != 0
-        movzx ecx, byte ptr [esi]
-        .if cl >= '0' && cl <= '9'
-            sub ecx, '0'
-            imul eax, 10
-            add eax, ecx
-        .endif
-        inc esi
-    .endw
-    mov val, eax
-
-    ; Check if current entry is Debit or Credit
-    invoke lstrcmpi, ADDR currentType, ADDR debitText
-    .if eax == 0
-        mov eax, val
-        add totalDebit, eax
-    .else
-        mov eax, val
-        add totalCredit, eax
-    .endif
-
-    ; Calculate total earnings (Balance = Debit - Credit)
-    mov eax, totalDebit
-    sub eax, totalCredit
-    mov totalBalance, eax
-
-    ; Update the display boxes
-    invoke wsprintf, ADDR strSumBuffer, ADDR formatStr, totalDebit
-    invoke SetWindowText, hDispDebit, ADDR strSumBuffer
-
-    invoke wsprintf, ADDR strSumBuffer, ADDR formatStr, totalCredit
-    invoke SetWindowText, hDispCredit, ADDR strSumBuffer
-
-    invoke wsprintf, ADDR strSumBuffer, ADDR formatStr, totalBalance
-    invoke SetWindowText, hDispBalance, ADDR strSumBuffer
-
-    ret
-UpdateSummary endp
-
-LoadProducts proc
-
-    LOCAL hFile:DWORD
-    LOCAL dwFileSize:DWORD
-    LOCAL dwRead:DWORD
-    LOCAL lpBuffer:DWORD
-    LOCAL pLineStart:DWORD
-    LOCAL hHeap:DWORD
-
-    invoke CreateFile, ADDR productsFile, GENERIC_READ, FILE_SHARE_READ, \
-                       NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
-    
+    invoke CreateFile, ADDR productsFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
     .if eax == INVALID_HANDLE_VALUE
         ret
     .endif
     mov hFile, eax
-
+    
     invoke GetFileSize, hFile, NULL
-    mov dwFileSize, eax
-
-    .if eax == 0
+    mov fSize, eax
+    
+    .if fSize == 0
         invoke CloseHandle, hFile
         ret
     .endif
 
     invoke GetProcessHeap
-    mov hHeap, eax
-    invoke HeapAlloc, hHeap, HEAP_ZERO_MEMORY, dwFileSize
-    mov lpBuffer, eax
-
-    invoke ReadFile, hFile, lpBuffer, dwFileSize, ADDR dwRead, NULL
+    invoke HeapAlloc, eax, HEAP_ZERO_MEMORY, fSize
+    mov pMem, eax
+    
+    invoke ReadFile, hFile, pMem, fSize, ADDR nRead, NULL
     invoke CloseHandle, hFile
-
-    mov eax, lpBuffer
-    mov pLineStart, eax
-    mov ecx, dwFileSize
-
-    .while ecx > 0
-        movzx edx, byte ptr [eax]
-        .if dl == 13 || dl == 10
-            mov byte ptr [eax], 0
-            
-            push eax
-            push ecx
-            invoke SendMessage, hProduct, CB_ADDSTRING, 0, pLineStart
-            pop ecx
-            pop eax
-
-            inc eax
-            dec ecx
-            .if ecx > 0
-                movzx edx, byte ptr [eax]
-                .if dl == 10 || dl == 13
-                    inc eax
-                    dec ecx
-                .endif
-            .endif
-            mov pLineStart, eax
-        .else
-            inc eax
-            dec ecx
-        .endif
-    .endw
-
-    ; Handle the last line if it doesn't end with a newline
-    mov eax, pLineStart
-    sub eax, lpBuffer
-    .if eax < dwFileSize
-        invoke SendMessage, hProduct, CB_ADDSTRING, 0, pLineStart
+    
+    mov esi, pMem
+    mov edi, pMem
+    add edi, fSize ; End of buffer
+    
+parse_loop:
+    cmp esi, edi
+    jae done_parsing
+    
+    ; Skip whitespace and newlines
+    mov al, [esi]
+    .if al == 13 || al == 10 || al == ' ' || al == 9
+        inc esi
+        jmp parse_loop
     .endif
 
-    invoke HeapFree, hHeap, 0, lpBuffer
+    mov eax, productCount
+    imul eax, 32
+    lea edx, [productsNames + eax]
+    
+copy_name:
+    cmp esi, edi
+    jae name_done
+    mov al, [esi]
+    .if al == 13 || al == 10
+        jmp name_done
+    .endif
+    mov [edx], al
+    inc edx
+    inc esi
+    jmp copy_name
+
+name_done:
+    mov byte ptr [edx], 0 ; Null terminate
+    
+    mov eax, productCount
+    imul eax, 32
+    lea edx, [productsNames + eax]
+    invoke SendMessage, hCombo, CB_ADDSTRING, 0, edx
+    
+    mov eax, productCount
+    mov ebx, eax
+    shl ebx, 2
+    mov productsQty[ebx], 0 ; Default quantity for loaded products
+    
+    inc productCount
+    .if productCount < MAX_PRODUCTS
+        jmp parse_loop
+    .endif
+
+done_parsing:
+    invoke GetProcessHeap
+    invoke HeapFree, eax, 0, pMem
+    invoke RefreshProductList
+    ret
+LoadProductsFromFile endp
+
+AddProduct proc uses ebx esi
+
+LOCAL index:DWORD
+LOCAL qty:DWORD
+
+    invoke GetWindowText,hNewProduct,ADDR newProductBuffer,64
+    invoke GetWindowText,hNewQty,ADDR qtyBuffer,64
+
+    invoke lstrlen,ADDR newProductBuffer
+
+    .if eax == 0
+        invoke MessageBox,NULL,ADDR msgError,ADDR AppName,MB_OK
+        ret
+    .endif
+
+    mov ecx,productCount
+    xor ebx,ebx
+
+checkLoop:
+
+    cmp ebx,ecx
+    jge addNow
+
+    mov eax,ebx
+    imul eax,32
+
+        lea edx, [productsNames + eax]
+        invoke lstrcmpi, ADDR newProductBuffer, edx
+
+    .if eax == 0
+
+        invoke MessageBox,NULL,ADDR msgDuplicate,ADDR AppName,MB_OK
+        ret
+
+    .endif
+
+    inc ebx
+    jmp checkLoop
+
+addNow:
+
+    mov eax,productCount
+    imul eax,32
+
+    lea edx, [productsNames + eax]
+    invoke lstrcpy, edx, ADDR newProductBuffer
+
+    invoke atodw,ADDR qtyBuffer
+    mov qty,eax
+
+    mov eax,productCount
+    mov ebx,qty
+    mov esi,eax
+    shl esi,2
+    mov productsQty[esi],ebx
 
     invoke SendMessage,\
-    hProduct,\
-    CB_SETCURSEL,\
+    hCombo,\
+    CB_ADDSTRING,\
     0,\
-    0
+    ADDR newProductBuffer
+
+    invoke RefreshProductList
+
+    inc productCount
+
+    invoke MessageBox,NULL,ADDR msgProductAdded,ADDR AppName,MB_OK
 
     ret
 
-LoadProducts endp
+AddProduct endp
+
+; ================================================================
+
+RefreshProductList proc uses esi
+
+LOCAL lvi:LVITEM
+LOCAL i:DWORD
+
+    invoke SendMessage,hManageList,LVM_DELETEALLITEMS,0,0
+
+    mov i,0
+
+nextItem:
+
+    mov eax,i
+    cmp eax,productCount
+    jge done
+
+    mov lvi.iItem,eax
+    imul eax,32
+
+    mov DWORD PTR lvi.iSubItem,0
+    mov DWORD PTR lvi.imask,LVIF_TEXT
+    mov edx,OFFSET productsNames
+    add edx,eax
+    mov DWORD PTR lvi.pszText,edx
+
+    invoke SendMessage,\
+    hManageList,\
+    LVM_INSERTITEM,\
+    0,\
+    ADDR lvi
+
+    mov eax,i
+    mov esi,eax
+    shl esi,2
+    mov eax,productsQty[esi]
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    eax
+
+    mov DWORD PTR lvi.iSubItem,1
+    mov DWORD PTR lvi.pszText,OFFSET strBuffer
+
+    invoke SendMessage,\
+    hManageList,\
+    LVM_SETITEMTEXT,\
+    i,\
+    ADDR lvi
+
+    inc i
+    jmp nextItem
+
+done:
+
+    ret
+
+RefreshProductList endp
+
+; ================================================================
+
+AddTransaction proc uses ebx esi
+
+LOCAL amount:DWORD
+LOCAL lvi:LVITEM
+LOCAL i:DWORD
+
+    invoke SendMessage,\
+    hCombo,\
+    CB_GETCURSEL,\
+    0,\
+    0
+
+    invoke SendMessage,\
+    hCombo,\
+    CB_GETLBTEXT,\
+    eax,\
+    ADDR selectedProduct
+
+    invoke GetWindowText,hAccount,ADDR accountBuffer,64
+    invoke GetWindowText,hPurpose,ADDR purposeBuffer,64
+    invoke GetWindowText,hAmount,ADDR amountBuffer,64
+
+    invoke atodw,ADDR amountBuffer
+    mov amount,eax
+
+    mov ecx,productCount
+    mov i,0
+
+findProduct:
+
+    mov eax,i
+    cmp eax,ecx
+    jge finish
+
+    mov eax,i
+    imul eax,32
+
+    lea edx, [productsNames + eax]
+    invoke lstrcmpi, ADDR selectedProduct, edx
+
+    .if eax == 0
+
+        mov eax,i
+        mov esi,eax
+        shl esi,2
+        mov ebx,productsQty[esi]
+
+        cmp ebx,0
+        jle noStock
+
+        dec ebx
+        mov esi,eax
+        shl esi,2
+        mov productsQty[esi],ebx
+
+        invoke RefreshProductList
+
+        invoke InsertReportItem
+
+        invoke lstrcmpi,\
+        ADDR currentType,\
+        ADDR txtDebit
+
+        .if eax == 0
+
+            mov eax,amount
+            add totalDebit,eax
+
+        .else
+
+            mov eax,amount
+            add totalCredit,eax
+
+        .endif
+
+        mov eax,totalDebit
+        sub eax,totalCredit
+        mov totalEarning,eax
+
+        invoke UpdateDashboard
+
+        ret
+
+    .endif
+
+    inc i
+    jmp findProduct
+
+noStock:
+
+    invoke MessageBox,NULL,ADDR msgStock,ADDR AppName,MB_OK
+
+finish:
+
+    ret
+
+AddTransaction endp
+
+; ================================================================
+
+InsertReportItem proc
+
+LOCAL lvi:LVITEM
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_GETITEMCOUNT,\
+    0,\
+    0
+
+    mov DWORD PTR lvi.iItem,eax
+    mov DWORD PTR lvi.imask,LVIF_TEXT
+
+    mov DWORD PTR lvi.iSubItem,0
+    mov DWORD PTR lvi.pszText,OFFSET selectedProduct
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_INSERTITEM,\
+    0,\
+    ADDR lvi
+
+    mov DWORD PTR lvi.iSubItem,1
+    mov DWORD PTR lvi.pszText,OFFSET accountBuffer
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_SETITEMTEXT,\
+    lvi.iItem,\
+    ADDR lvi
+
+    mov DWORD PTR lvi.iSubItem,2
+    mov DWORD PTR lvi.pszText,OFFSET purposeBuffer
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_SETITEMTEXT,\
+    lvi.iItem,\
+    ADDR lvi
+
+    mov DWORD PTR lvi.iSubItem,3
+    mov DWORD PTR lvi.pszText,OFFSET amountBuffer
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_SETITEMTEXT,\
+    lvi.iItem,\
+    ADDR lvi
+
+    mov DWORD PTR lvi.iSubItem,4
+    mov DWORD PTR lvi.pszText,OFFSET currentType
+
+    invoke SendMessage,\
+    hReportList,\
+    LVM_SETITEMTEXT,\
+    lvi.iItem,\
+    ADDR lvi
+
+    ret
+
+InsertReportItem endp
+
+; ================================================================
+
+UpdateDashboard proc
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalDebit
+
+    invoke SetWindowText,\
+    hDebitLabel,\
+    ADDR strBuffer
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalCredit
+
+    invoke SetWindowText,\
+    hCreditLabel,\
+    ADDR strBuffer
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalEarning
+
+    invoke SetWindowText,\
+    hEarnLabel,\
+    ADDR strBuffer
+
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
 
 end start
