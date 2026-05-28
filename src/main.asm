@@ -54,13 +54,17 @@ MAX_PRODUCTS equ 100
 
 .data
 
+.data
+
 icc INITCOMMONCONTROLSEX <SIZEOF INITCOMMONCONTROLSEX,\
 ICC_LISTVIEW_CLASSES>
 
 ClassName db "SentryClass",0
 AppName db "Bit Balance",0
-productsFile db "data\products.txt",0
-
+productsFile db "data\\products.txt",0
+recordsFile db "data\\records.txt",0
+newline db 13,10,0
+comma db ",",0
 headerTitle db "BIT BALANCE PROFESSIONAL ACCOUNTING SYSTEM",0
 
 txtTransaction db "TRANSACTION",0
@@ -961,6 +965,8 @@ AddProduct proc uses ebx esi
 
 LOCAL index:DWORD
 LOCAL qty:DWORD
+LOCAL hFile:HANDLE
+LOCAL bytesWritten:DWORD
 
     invoke GetWindowText,hNewProduct,ADDR newProductBuffer,64
     invoke GetWindowText,hNewQty,ADDR qtyBuffer,64
@@ -1020,6 +1026,35 @@ addNow:
     ADDR newProductBuffer
 
     invoke RefreshProductList
+    
+    ; Save product to products.txt
+    invoke CreateFile,ADDR productsFile,FILE_APPEND_DATA,FILE_SHARE_READ,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL
+    .if eax != INVALID_HANDLE_VALUE
+        mov hFile,eax
+        
+        ; Write product name
+        invoke lstrlen,ADDR newProductBuffer
+        mov ecx, eax
+        invoke WriteFile,hFile,ADDR newProductBuffer,ecx,ADDR bytesWritten,NULL
+        
+        ; Write comma
+        invoke lstrlen,ADDR comma
+        mov ecx, eax
+        invoke WriteFile,hFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+        
+        ; Convert quantity to string and write
+        invoke wsprintf,ADDR strBuffer,ADDR formatInt,qty
+        invoke lstrlen,ADDR strBuffer
+        mov ecx, eax
+        invoke WriteFile,hFile,ADDR strBuffer,ecx,ADDR bytesWritten,NULL
+        
+        ; Write newline
+        invoke lstrlen,ADDR newline
+        mov ecx, eax
+        invoke WriteFile,hFile,ADDR newline,ecx,ADDR bytesWritten,NULL
+        
+        invoke CloseHandle,hFile
+    .endif
 
     inc productCount
 
@@ -1096,6 +1131,13 @@ AddTransaction proc uses ebx esi
 LOCAL amount:DWORD
 LOCAL lvi:LVITEM
 LOCAL i:DWORD
+LOCAL hFile:HANDLE
+LOCAL tempFile:HANDLE
+LOCAL bytesWritten:DWORD
+LOCAL pMem:DWORD
+LOCAL fSize:DWORD
+LOCAL nRead:DWORD
+LOCAL tempPath[256]:BYTE
 
     invoke SendMessage,\
     hCombo,\
@@ -1147,8 +1189,135 @@ findProduct:
         mov productsQty[esi],ebx
 
         invoke RefreshProductList
+        
+        ; Initialize temp path
+        invoke lstrcpy,ADDR tempPath,CSTR("data\\temp.txt")
+        
+        ; Update products.txt with new stock quantity
+        ; First, rewrite entire products file with updated quantities
+        invoke CreateFile,ADDR productsFile,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL
+        .if eax != INVALID_HANDLE_VALUE
+            mov hFile,eax
+            invoke GetFileSize,hFile,NULL
+            mov fSize,eax
+            .if fSize > 0
+                invoke GetProcessHeap
+                invoke HeapAlloc,eax,HEAP_ZERO_MEMORY,fSize
+                mov pMem,eax
+                invoke ReadFile,hFile,pMem,fSize,ADDR nRead,NULL
+                invoke CloseHandle,hFile
+                
+                ; Create temp file to write updated data
+                invoke CreateFile,ADDR tempPath,GENERIC_WRITE,FILE_SHARE_READ,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL
+                .if eax != INVALID_HANDLE_VALUE
+                    mov tempFile,eax
+                    
+                    ; Rewrite all products with their current quantities
+                    push esi
+                    mov esi,0
+rewriteProducts:
+                    cmp esi,productCount
+                    jge doneRewrite
+                    
+                    ; Write product name
+                    mov eax,esi
+                    imul eax,32
+                    lea edx,[productsNames+eax]
+                    push edx
+                    invoke lstrlen,edx
+                    mov ecx, eax
+                    pop edx
+                    invoke WriteFile,tempFile,edx,ecx,ADDR bytesWritten,NULL
+                    
+                    ; Write comma
+                    invoke lstrlen,ADDR comma
+                    mov ecx, eax
+                    invoke WriteFile,tempFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+                    
+                    ; Write quantity
+                    mov eax,esi
+                    shl eax,2
+                    mov eax,productsQty[eax]
+                    invoke wsprintf,ADDR strBuffer,ADDR formatInt,eax
+                    invoke lstrlen,ADDR strBuffer
+                    mov ecx, eax
+                    invoke WriteFile,tempFile,ADDR strBuffer,ecx,ADDR bytesWritten,NULL
+                    
+                    ; Write newline
+                    invoke lstrlen,ADDR newline
+                    mov ecx, eax
+                    invoke WriteFile,tempFile,ADDR newline,ecx,ADDR bytesWritten,NULL
+                    
+                    inc esi
+                    jmp rewriteProducts
+doneRewrite:
+                    pop esi
+                    invoke CloseHandle,tempFile
+                    invoke GetProcessHeap
+                    invoke HeapFree,eax,0,pMem
+                    
+                    ; Replace original file with temp file
+                    invoke DeleteFile,ADDR productsFile
+                    invoke MoveFile,ADDR tempPath,ADDR productsFile
+                .endif
+            .endif
+        .endif
 
         invoke InsertReportItem
+        
+        ; Record transaction in records.txt
+        invoke CreateFile,ADDR recordsFile,FILE_APPEND_DATA,FILE_SHARE_READ,NULL,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL
+        .if eax != INVALID_HANDLE_VALUE
+            mov hFile,eax
+            
+            ; Write product
+            invoke lstrlen,ADDR selectedProduct
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR selectedProduct,ecx,ADDR bytesWritten,NULL
+            
+            invoke lstrlen,ADDR comma
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+            
+            ; Write account
+            invoke lstrlen,ADDR accountBuffer
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR accountBuffer,ecx,ADDR bytesWritten,NULL
+            
+            invoke lstrlen,ADDR comma
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+            
+            ; Write purpose
+            invoke lstrlen,ADDR purposeBuffer
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR purposeBuffer,ecx,ADDR bytesWritten,NULL
+            
+            invoke lstrlen,ADDR comma
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+            
+            ; Write amount
+            invoke lstrlen,ADDR amountBuffer
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR amountBuffer,ecx,ADDR bytesWritten,NULL
+            
+            invoke lstrlen,ADDR comma
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR comma,ecx,ADDR bytesWritten,NULL
+            
+            ; Write type
+            invoke lstrlen,ADDR currentType
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR currentType,ecx,ADDR bytesWritten,NULL
+            
+            ; Write newline
+            invoke lstrlen,ADDR newline
+            mov ecx, eax
+            invoke WriteFile,hFile,ADDR newline,ecx,ADDR bytesWritten,NULL
+            
+            invoke CloseHandle,hFile
+        .endif
 
         invoke lstrcmpi,\
         ADDR currentType,\
@@ -1251,6 +1420,81 @@ LOCAL lvi:LVITEM
 
     ret
 
+InsertReportItem endp
+
+; ================================================================
+
+UpdateDashboard proc
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalDebit
+
+    invoke SetWindowText,\
+    hDebitLabel,\
+    ADDR strBuffer
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalCredit
+
+    invoke SetWindowText,\
+    hCreditLabel,\
+    ADDR strBuffer
+
+    invoke wsprintf,\
+    ADDR strBuffer,\
+    ADDR formatInt,\
+    totalEarning
+
+    invoke SetWindowText,\
+    hEarnLabel,\
+    ADDR strBuffer
+
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
+    ret
+
+UpdateDashboard endp
+
+; ================================================================
+
+end start
 InsertReportItem endp
 
 ; ================================================================
