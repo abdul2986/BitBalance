@@ -1,4 +1,4 @@
-; ========================= SENTRY OS PRO =========================
+; ========================= BIT BALANCE =========================
 ; FULL PROFESSIONAL ACCOUNTING + INVENTORY SYSTEM
 ; MASM32 SAFE VERSION
 ; ================================================================
@@ -58,10 +58,10 @@ icc INITCOMMONCONTROLSEX <SIZEOF INITCOMMONCONTROLSEX,\
 ICC_LISTVIEW_CLASSES>
 
 ClassName db "SentryClass",0
-AppName db "Sentry OS PRO",0
+AppName db "Bit Balance",0
 productsFile db "data\products.txt",0
 
-headerTitle db "SENTRY OS PROFESSIONAL ACCOUNTING SYSTEM",0
+headerTitle db "BIT BALANCE PROFESSIONAL ACCOUNTING SYSTEM",0
 
 txtTransaction db "TRANSACTION",0
 txtAddProduct db "ADD PRODUCT",0

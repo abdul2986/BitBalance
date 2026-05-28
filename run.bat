@@ -1,2 +1,2 @@
 @echo off
-start bin\SentryOS.exe
+start bin\BitBalance.exe
