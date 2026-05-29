@@ -932,7 +932,7 @@ copy_name:
     cmp esi, edi
     jae name_done
     mov al, [esi]
-    .if al == 13 || al == 10
+    .if al == ',' || al == 13 || al == 10
         jmp name_done
     .endif
     mov [edx], al
@@ -948,10 +948,31 @@ name_done:
     lea edx, [productsNames + eax]
     invoke SendMessage, hCombo, CB_ADDSTRING, 0, edx
     
+    ; Parse quantity if comma exists
+    mov ebx, 0
+    .if byte ptr [esi] == ','
+        inc esi
+        lea edx, qtyBuffer
+    copy_qty:
+        cmp esi, edi
+        jae qty_done
+        mov al, [esi]
+        .if al == 13 || al == 10
+            jmp qty_done
+        .endif
+        mov [edx], al
+        inc edx
+        inc esi
+        jmp copy_qty
+    qty_done:
+        mov byte ptr [edx], 0
+        invoke atodw, ADDR qtyBuffer
+        mov ebx, eax
+    .endif
+    
     mov eax, productCount
-    mov ebx, eax
-    shl ebx, 2
-    mov productsQty[ebx], 0 ; Default quantity for loaded products
+    shl eax, 2
+    mov productsQty[eax], ebx
     
     inc productCount
     .if productCount < MAX_PRODUCTS
