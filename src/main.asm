@@ -27,6 +27,7 @@ WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
 
 AddTransaction PROTO
 AddProduct PROTO
+LoadRecordsFromFile PROTO
 RefreshProductList PROTO
 UpdateDashboard PROTO
 LoadProductsFromFile PROTO
@@ -739,6 +740,9 @@ LOCAL lvi:LVITEM
         mov lvc.pszText,OFFSET txtType
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,4,ADDR lvc
 
+        ; Load historical transactions from file
+        invoke LoadRecordsFromFile
+
 ; ================= DEFAULT STATE =================
         ; Force show only Transaction Module at startup
         invoke SendMessage, hWnd, WM_COMMAND, IDC_TRANSACTION_MENU, 0
@@ -960,6 +964,139 @@ done_parsing:
     invoke RefreshProductList
     ret
 LoadProductsFromFile endp
+
+LoadRecordsFromFile proc uses ebx esi edi
+    LOCAL hFile:HANDLE
+    LOCAL fSize:DWORD
+    LOCAL nRead:DWORD
+    LOCAL pMem:DWORD
+    LOCAL amount:DWORD
+    
+    invoke CreateFile, ADDR recordsFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
+    .if eax == INVALID_HANDLE_VALUE
+        ret
+    .endif
+    mov hFile, eax
+    
+    invoke GetFileSize, hFile, NULL
+    mov fSize, eax
+    
+    .if fSize == 0
+        invoke CloseHandle, hFile
+        ret
+    .endif
+
+    invoke GetProcessHeap
+    invoke HeapAlloc, eax, HEAP_ZERO_MEMORY, fSize
+    mov pMem, eax
+    
+    invoke ReadFile, hFile, pMem, fSize, ADDR nRead, NULL
+    invoke CloseHandle, hFile
+    
+    mov esi, pMem
+    mov edi, pMem
+    add edi, fSize ; End of buffer
+    
+parse_loop:
+    cmp esi, edi
+    jae done_parsing
+
+    ; Field 1: Product
+    lea edx, selectedProduct
+    @@: cmp esi, edi
+    jae f1_e
+    mov al, [esi]
+    inc esi
+    cmp al, ','
+    je f1_e
+    mov [edx], al
+    inc edx
+    jmp @b
+    f1_e: mov byte ptr [edx], 0
+
+    ; Field 2: Account
+    lea edx, accountBuffer
+    @@: cmp esi, edi
+    jae f2_e
+    mov al, [esi]
+    inc esi
+    cmp al, ','
+    je f2_e
+    mov [edx], al
+    inc edx
+    jmp @b
+    f2_e: mov byte ptr [edx], 0
+
+    ; Field 3: Purpose
+    lea edx, purposeBuffer
+    @@: cmp esi, edi
+    jae f3_e
+    mov al, [esi]
+    inc esi
+    cmp al, ','
+    je f3_e
+    mov [edx], al
+    inc edx
+    jmp @b
+    f3_e: mov byte ptr [edx], 0
+
+    ; Field 4: Amount
+    lea edx, amountBuffer
+    @@: cmp esi, edi
+    jae f4_e
+    mov al, [esi]
+    inc esi
+    cmp al, ','
+    je f4_e
+    mov [edx], al
+    inc edx
+    jmp @b
+    f4_e: mov byte ptr [edx], 0
+
+    ; Field 5: Type
+    lea edx, currentType
+    @@: cmp esi, edi
+    jae f5_e
+    mov al, [esi]
+    inc esi
+    cmp al, 13
+    je skip_cr
+    cmp al, 10
+    je f5_e
+    mov [edx], al
+    inc edx
+    jmp @b
+    skip_cr:
+    .if byte ptr [esi] == 10
+        inc esi
+    .endif
+    f5_e: mov byte ptr [edx], 0
+
+    invoke InsertReportItem
+    
+    ; Update Dashboard totals from history
+    invoke atodw, ADDR amountBuffer
+    mov amount, eax
+    invoke lstrcmpi, ADDR currentType, ADDR txtDebit
+    .if eax == 0
+        mov eax, amount
+        add totalDebit, eax
+    .else
+        mov eax, amount
+        add totalCredit, eax
+    .endif
+
+    jmp parse_loop
+
+done_parsing:
+    mov eax, totalDebit
+    sub eax, totalCredit
+    mov totalEarning, eax
+    invoke UpdateDashboard
+    invoke GetProcessHeap
+    invoke HeapFree, eax, 0, pMem
+    ret
+LoadRecordsFromFile endp
 
 AddProduct proc uses ebx esi
 
@@ -1456,82 +1593,4 @@ UpdateDashboard proc
     ret
 
 UpdateDashboard endp
-
-; ================================================================
-
-end start
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
-end start
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
-end start
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
-end start
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
-end start
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
-end start
-InsertReportItem endp
-
-; ================================================================
-
-UpdateDashboard proc
-
-    invoke wsprintf,\
-    ADDR strBuffer,\
-    ADDR formatInt,\
-    totalDebit
-
-    invoke SetWindowText,\
-    hDebitLabel,\
-    ADDR strBuffer
-
-    invoke wsprintf,\
-    ADDR strBuffer,\
-    ADDR formatInt,\
-    totalCredit
-
-    invoke SetWindowText,\
-    hCreditLabel,\
-    ADDR strBuffer
-
-    invoke wsprintf,\
-    ADDR strBuffer,\
-    ADDR formatInt,\
-    totalEarning
-
-    invoke SetWindowText,\
-    hEarnLabel,\
-    ADDR strBuffer
-
-    ret
-
-UpdateDashboard endp
-
-; ================================================================
-
 end start
