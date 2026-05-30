@@ -447,9 +447,6 @@ LOCAL lvi:LVITEM
 
         mov hCombo,eax
 
-        ; Fetch products from file into the dropdown
-        invoke LoadProductsFromFile
-
         invoke CreateWindowEx,\
         0,\
         ADDR StaticClass,\
@@ -892,6 +889,10 @@ LoadProductsFromFile proc uses ebx esi edi
     LOCAL nRead:DWORD
     LOCAL pMem:DWORD
     
+    ; Reset count and UI to prevent duplicates on reload
+    mov productCount, 0
+    invoke SendMessage, hCombo, CB_RESETCONTENT, 0, 0
+
     invoke CreateFile, ADDR productsFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
     .if eax == INVALID_HANDLE_VALUE
         ret
@@ -1142,12 +1143,11 @@ LOCAL bytesWritten:DWORD
         ret
     .endif
 
-    mov ecx,productCount
     xor ebx,ebx
 
 checkLoop:
 
-    cmp ebx,ecx
+    cmp ebx,productCount
     jge addNow
 
     mov eax,ebx
@@ -1322,13 +1322,12 @@ LOCAL tempPath[256]:BYTE
     invoke atodw,ADDR amountBuffer
     mov amount,eax
 
-    mov ecx,productCount
     mov i,0
 
 findProduct:
 
     mov eax,i
-    cmp eax,ecx
+    cmp eax,productCount
     jge finish
 
     mov eax,i
