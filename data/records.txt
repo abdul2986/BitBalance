@@ -1,3 +1,2 @@
-Keybaord,wdsd,dwdsd,100,Debit
-Keybaord,wdsd,dwdsd,10,Debit
-Keybaord,sdfsdf,n/a,100,Credit
+Toothpaste,PLLJ3423,N/A,1000,Debit
+Toothpaste,PLLJ3423,N/A,1000,Debit

@@ -690,13 +690,16 @@ LOCAL lvi:LVITEM
 
         mov hManageList,eax
 
+        ; Set Gridlines and Full Row Select
+        invoke SendMessage, hManageList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT or LVS_EX_GRIDLINES
+
         mov lvc.imask,LVCF_TEXT or LVCF_WIDTH
 
-        mov lvc.lx,200
+        mov lvc.lx,550
         mov lvc.pszText,OFFSET txtProduct
         invoke SendMessage,hManageList,LVM_INSERTCOLUMN,0,ADDR lvc
 
-        mov lvc.lx,200
+        mov lvc.lx,245
         mov lvc.pszText,OFFSET txtQuantity
         invoke SendMessage,hManageList,LVM_INSERTCOLUMN,1,ADDR lvc
 
@@ -718,27 +721,33 @@ LOCAL lvi:LVITEM
 
         mov hReportList,eax
 
+        ; Set Gridlines and Full Row Select
+        invoke SendMessage, hReportList, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT or LVS_EX_GRIDLINES
+
         mov lvc.imask,LVCF_TEXT or LVCF_WIDTH
 
-        mov lvc.lx,120
+        mov lvc.lx,250
         mov lvc.pszText,OFFSET txtProduct
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,0,ADDR lvc
 
-        mov lvc.lx,120
+        mov lvc.lx,200
         mov lvc.pszText,OFFSET txtAccount
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,1,ADDR lvc
 
-        mov lvc.lx,120
+        mov lvc.lx,250
         mov lvc.pszText,OFFSET txtPurpose
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,2,ADDR lvc
 
-        mov lvc.lx,120
+        mov lvc.lx,200
         mov lvc.pszText,OFFSET txtAmount
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,3,ADDR lvc
 
-        mov lvc.lx,100
+        mov lvc.lx,195
         mov lvc.pszText,OFFSET txtType
         invoke SendMessage,hReportList,LVM_INSERTCOLUMN,4,ADDR lvc
+
+        ; Fetch products from file (Now that handles are created)
+        invoke LoadProductsFromFile
 
         ; Load historical transactions from file
         invoke LoadRecordsFromFile
@@ -951,6 +960,7 @@ name_done:
     ; Parse quantity if comma exists
     mov ebx, 0
     .if byte ptr [esi] == ','
+    .if esi < edi && byte ptr [esi] == ','
         inc esi
         lea edx, qtyBuffer
     copy_qty:
@@ -968,6 +978,7 @@ name_done:
         mov byte ptr [edx], 0
         invoke atodw, ADDR qtyBuffer
         mov ebx, eax
+    .endif
     .endif
     
     mov eax, productCount
@@ -1500,8 +1511,7 @@ doneRewrite:
         invoke UpdateDashboard
 
         ret
-
-    .endif
+    .endif ; Closes the .if block for 'product found' (line 1367)
 
     inc i
     jmp findProduct
