@@ -1,8 +1,3 @@
-; ========================= BIT BALANCE =========================
-; FULL PROFESSIONAL ACCOUNTING + INVENTORY SYSTEM
-; MASM32 SAFE VERSION
-; ================================================================
-
 .386
 .model flat, stdcall
 option casemap:none
